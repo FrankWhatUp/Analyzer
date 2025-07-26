@@ -12,13 +12,13 @@ api_key = "PKS0QSGZK3C6C41W7EOO"
 api_secret = "zsQB6O1vNVByAhnGX7Ps7dehgwWbpucja48oJziB"
 tools = SimplifiedTools(api_key, api_secret)
 current_day = datetime.now().date()
-agent = QLearningAgent(actions=["Buy", "Hold", "Sell"], learning_rate=0.6, discount_factor=0.4, exploration_rate=0.8, initial_equity=100000000, start_date = current_day)
+agent = QLearningAgent(actions=["Buy", "Hold", "Sell"], learning_rate=0.7, discount_factor=0.4, exploration_rate=0.8, initial_equity=100000000, start_date = current_day)
 agent.load_q_table()
 
 # === CONFIG ===
 timeframe = "hour"
 window_size_hours = 10 * 24  # 7 days of hourly data
-training_hours = 24 * 24    # approx 2 months (60 days)
+training_hours = 45 * 24    # approx 2 months (60 days)
 start_reference = datetime.now() - timedelta(hours=training_hours + window_size_hours)
 
 for i in range(training_hours):

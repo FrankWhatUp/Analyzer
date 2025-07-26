@@ -44,7 +44,7 @@ class LiveTradingTrainer:
             self.agent.settled_cashB -= total_cost
 
         self.agent.equity -= total_cost
-        self.save_position(stock, "holding", shares)
+        self.save_position(stock, "holding", shares, current_price)
 
     # def execute_sell(self, stock, current_price):
     #     pos, shares = self.get_position(stock)
@@ -56,7 +56,7 @@ class LiveTradingTrainer:
     #         self.save_position(stock,"flat",0)
     
     def execute_sell(self, stock, current_price):
-        pos, shares = self.get_position(stock)
+        pos, shares,_ = self.get_position(stock)
         if pos == "holding":
             proceeds = shares * current_price
             release_time = datetime.now() + timedelta(days=2)
@@ -67,35 +67,35 @@ class LiveTradingTrainer:
 
             self.agent.pending_settlements.append((release_time, proceeds, pool))
             self.agent.equity += proceeds
-            self.save_position(stock, "flat", 0)
+            self.save_position(stock, "flat", 0, 0)
 
-    def save_price(self,stock: str, price: float):
-        """
-        Saves or updates the price of the given stock in the pricetracking.txt file.
-        """
-        PRICE_FILE = self.price_file
-        stock = stock.upper()
-        updated = False
-        lines = []
-
-        # Read existing lines
-        if os.path.exists(PRICE_FILE):
-            with open(PRICE_FILE, "r") as f:
-                for line in f:
-                    symbol, _, old_price = line.strip().partition(":")
-                    if symbol.strip().upper() == stock:
-                        lines.append(f"{stock} : {price}\n")
-                        updated = True
-                    else:
-                        lines.append(line)
-
-        # Add new entry if not found
-        if not updated:
-            lines.append(f"{stock} : {price}\n")
-
-        # Write back to file
-        with open(PRICE_FILE, "w") as f:
-            f.writelines(lines)
+    # def save_price(self,stock: str, price: float):
+    #     """
+    #     Saves or updates the price of the given stock in the pricetracking.txt file.
+    #     """
+    #     PRICE_FILE = self.price_file
+    #     stock = stock.upper()
+    #     updated = False
+    #     lines = []
+    #
+    #     # Read existing lines
+    #     if os.path.exists(PRICE_FILE):
+    #         with open(PRICE_FILE, "r") as f:
+    #             for line in f:
+    #                 symbol, _, old_price = line.strip().partition(":")
+    #                 if symbol.strip().upper() == stock:
+    #                     lines.append(f"{stock} : {price}\n")
+    #                     updated = True
+    #                 else:
+    #                     lines.append(line)
+    #
+    #     # Add new entry if not found
+    #     if not updated:
+    #         lines.append(f"{stock} : {price}\n")
+    #
+    #     # Write back to file
+    #     with open(PRICE_FILE, "w") as f:
+    #         f.writelines(lines)
 
     def get_price(self,stock: str):
         """
@@ -118,7 +118,7 @@ class LiveTradingTrainer:
                         return None
         return None
 
-    def save_position(self, stock: str, position: str, shares: int = 0):
+    def save_position(self, stock: str, position: str, shares: int = 0, pricePerShare: float = 0):
         """
         Saves or updates the position ('holding' or 'flat') and number of shares of the given stock in posHold.txt.
         Format: SYMBOL : POSITION : SHARES
@@ -135,18 +135,14 @@ class LiveTradingTrainer:
                 for line in f:
                     symbol, _, rest = line.strip().partition(":")
                     if symbol.strip().upper() == stock:
-                        lines.append(f"{stock} : {position} : {shares}\n")
+                        lines.append(f"{stock} : {position} : {shares} : {pricePerShare}\n")
                         updated = True
                     else:
                         lines.append(line)
 
         # Add new entry if not found
         if not updated:
-            lines.append(f"{stock} : {position} : {shares}\n")
-
-        # Write updated content
-        with open(POSITION_FILE, "w") as f:
-            f.writelines(lines)
+            lines.append(f"{stock} : {position} : {shares} : {pricePerShare}\n")
 
         # Write updated content
         with open(POSITION_FILE, "w") as f:
@@ -154,15 +150,15 @@ class LiveTradingTrainer:
 
     def get_position(self, stock: str):
         """
-        Returns the most recently saved position and number of shares of the given stock.
-        Defaults to ('flat', 0) if not found or invalid.
-        Format expected in posHold.txt: SYMBOL : POSITION : SHARES
+        Returns the most recently saved position, number of shares, and bought price of the given stock.
+        Defaults to ('flat', 0, 0.0) if not found or invalid.
+        Format expected in posHold.txt: SYMBOL : POSITION : SHARES : PRICE
         """
         POSITION_FILE = self.position_file
         stock = stock.upper()
 
         if not os.path.exists(POSITION_FILE):
-            return "flat", 0
+            return "flat", 0, 0.0
 
         with open(POSITION_FILE, "r") as f:
             for line in f:
@@ -170,15 +166,24 @@ class LiveTradingTrainer:
                 if len(parts) >= 3:
                     symbol = parts[0].strip().upper()
                     position = parts[1].strip().lower()
+
                     try:
                         shares = int(parts[2].strip())
                     except ValueError:
                         shares = 0
 
-                    if symbol == stock and position in ["holding", "flat"]:
-                        return position, shares
+                    # Default price if not present
+                    boughtPrice = 0.0
+                    if len(parts) >= 4:
+                        try:
+                            boughtPrice = float(parts[3].strip())
+                        except ValueError:
+                            boughtPrice = 0.0
 
-        return "flat", 0
+                    if symbol == stock and position in ["holding", "flat"]:
+                        return position, shares, boughtPrice
+
+        return "flat", 0, 0.0
 
     def get_prev_action(self, stock: str):
         """
@@ -279,6 +284,54 @@ class LiveTradingTrainer:
                         return None
         return
 
+    # def compute_reward(self, stock: str, prev_action: str, current_price: float):
+    #     """
+    #     Calculates reward based on action context, price movement, and opportunity cost.
+    #     Parameters:
+    #         stock         - Stock symbol (str)
+    #         prev_action   - Agent's previous action (str): "Buy", "Sell", or "Hold"
+    #         current_price - Latest market price (float)
+    #     Returns:
+    #         reward (float)
+    #     """
+    #     prev_price = self.get_price(stock)
+    #     prev_position, _, boughtPrice = self.get_position(stock)
+    #
+    #     if prev_price is None or current_price is None or boughtPrice is None:
+    #         return 0.0  # Not enough data
+    #
+    #     # Price delta (normalized)
+    #     price_change = (current_price - prev_price) / prev_price
+    #
+    #     # === Reward Logic ===
+    #     reward = 0.0
+    #
+    #     if prev_action == "Buy":
+    #         reward = 0.2  # Encourage action
+    #         # Don't yet penalize incorrect buys — let time reveal outcome
+    #
+    #     elif prev_action == "Sell":
+    #         if price_change < 0:
+    #             reward = abs(price_change) * 1.0 + 0.3  # Sold before loss → bonus
+    #         else:
+    #             reward = -price_change * 0.5  # Penalize bad timing
+    #
+    #     elif prev_action == "Hold":
+    #         if prev_position == "holding":
+    #             reward = price_change * 0.3  # Reward/punish slow gains/losses
+    #         else:
+    #             # If flat and price moved a lot, punish missing the move
+    #             if abs(price_change) > 0.02:
+    #                 reward = -0.2  # Missed opportunity penalty
+    #             else:
+    #                 reward = -0.01  # Slight decay to discourage endless inaction
+    #
+    #     if price_change == 0:
+    #         reward = 0.0
+    #     # Clip to avoid extreme updates
+    #     reward = max(min(reward, 1.0), -1.0)
+    #     return reward
+
     def compute_reward(self, stock: str, prev_action: str, current_price: float):
         """
         Calculates reward based on action context, price movement, and opportunity cost.
@@ -289,21 +342,19 @@ class LiveTradingTrainer:
         Returns:
             reward (float)
         """
-        prev_price = self.get_price(stock)
-        prev_position, _ = self.get_position(stock)
+        prev_position, _, boughtPrice = self.get_position(stock)
 
-        if prev_price is None or current_price is None:
-            return 0.0  # Not enough data
+        if current_price is None or boughtPrice is None or boughtPrice <= 0.0:
+            return 0.0  # Not enough or invalid data
 
-        # Price delta (normalized)
-        price_change = (current_price - prev_price) / prev_price
+        # Price delta (normalized return since buy)
+        price_change = (current_price - boughtPrice) / boughtPrice
 
         # === Reward Logic ===
         reward = 0.0
 
         if prev_action == "Buy":
-            reward = 0.2  # Encourage action
-            # Don't yet penalize incorrect buys — let time reveal outcome
+            reward = 0.02  # Encourage action
 
         elif prev_action == "Sell":
             if price_change < 0:
@@ -315,7 +366,6 @@ class LiveTradingTrainer:
             if prev_position == "holding":
                 reward = price_change * 0.3  # Reward/punish slow gains/losses
             else:
-                # If flat and price moved a lot, punish missing the move
                 if abs(price_change) > 0.02:
                     reward = -0.2  # Missed opportunity penalty
                 else:
@@ -323,7 +373,8 @@ class LiveTradingTrainer:
 
         if price_change == 0:
             reward = 0.0
-        # Clip to avoid extreme updates
+
+        # Clip reward to range [-1.0, 1.0]
         reward = max(min(reward, 1.0), -1.0)
         return reward
 
@@ -345,7 +396,7 @@ class LiveTradingTrainer:
 
         latest_node = stock_trees[stock].get_latest_node()
         current_price = latest_node.close_price if latest_node else None
-        pos, _ = self.get_position(stock)
+        pos,_,_ = self.get_position(stock)
 
         day_index = (datetime.now().date() - self.agent.start_date).days
 
@@ -379,8 +430,7 @@ class LiveTradingTrainer:
         prev_state = self.get_stateSaved_key(stock)
         print("Stoc,Action,Prev_State",stock, action, prev_state)
         prev_action = self.get_prev_action(stock)
-        prev_price = self.get_price(stock)
-        prev_position, _ = self.get_position(stock)
+        prev_position,_,prev_price = self.get_position(stock)
 
         if prev_state is not None and prev_action is not None and prev_price is not None and prev_position is not None:
             reward = self.compute_reward(stock, prev_action, current_price)
@@ -413,7 +463,6 @@ class LiveTradingTrainer:
         # === Store state for next step ===
         self.save_state_key(stock,state_key)
         self.save_prev_action(stock,action)
-        self.save_price(stock, current_price)
 
         print(f"[Preview] {stock}: Action = {action}, State = {state_key}, Price = {current_price}, Reward = {reward}")
         # === Log decision ===
